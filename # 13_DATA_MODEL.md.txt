@@ -1,0 +1,219 @@
+# 13_DATA_MODEL.md
+
+# EventSheet AI — Lean Data Model
+
+## Purpose
+
+This file defines the structured JSON model used by EventSheet AI before generating the Excel workbook.
+
+There is no database.
+
+This data exists only in local state during the MVP session.
+
+## Root Object
+
+```json
+{
+  "event": {},
+  "guests": [],
+  "seating": [],
+  "suppliers": [],
+  "budget": [],
+  "risks": [],
+  "finalBrief": {}
+}
+```
+
+## Event
+
+```json
+{
+  "eventName": "",
+  "eventDate": "",
+  "venue": "",
+  "eventType": "",
+  "estimatedGuestCount": 0,
+  "notes": ""
+}
+```
+
+## Guest
+
+```json
+{
+  "id": "",
+  "name": "",
+  "side": "",
+  "category": "",
+  "rsvpStatus": "",
+  "tableNumber": "",
+  "phone": "",
+  "notes": ""
+}
+```
+
+## Seating Table
+
+```json
+{
+  "tableNumber": "",
+  "tableName": "",
+  "capacity": 0,
+  "assignedGuestIds": [],
+  "notes": ""
+}
+```
+
+## Supplier
+
+```json
+{
+  "id": "",
+  "supplierName": "",
+  "supplierType": "",
+  "contactName": "",
+  "phone": "",
+  "cost": 0,
+  "paidStatus": "",
+  "notes": ""
+}
+```
+
+## Budget Item
+
+```json
+{
+  "id": "",
+  "itemName": "",
+  "category": "",
+  "plannedCost": 0,
+  "actualCost": 0,
+  "paidStatus": "",
+  "notes": ""
+}
+```
+
+## Risk
+
+```json
+{
+  "id": "",
+  "riskTitle": "",
+  "severity": "",
+  "relatedArea": "",
+  "recommendation": "",
+  "status": ""
+}
+```
+
+## Final Brief
+
+```json
+{
+  "eventSummary": "",
+  "guestSummary": "",
+  "seatingSummary": "",
+  "supplierSummary": "",
+  "budgetSummary": "",
+  "riskSummary": "",
+  "managerNotes": ""
+}
+```
+
+## Excel Sheets Mapping
+
+### 01_Command_Center
+
+Uses:
+
+* event
+* guest totals
+* supplier totals
+* budget totals
+* risk totals
+
+### 02_Guest_Database
+
+Uses:
+
+* guests
+
+### 03_RSVP_Status
+
+Uses:
+
+* guests.rsvpStatus
+
+### 04_Categories
+
+Uses:
+
+* guests.category
+* guests.side
+
+### 05_Seating
+
+Uses:
+
+* seating
+* guests.tableNumber
+
+### 06_Venue
+
+Uses:
+
+* event.venue
+* seating capacity data
+
+### 07_Suppliers
+
+Uses:
+
+* suppliers
+
+### 08_Budget
+
+Uses:
+
+* budget
+* suppliers.cost
+
+### 09_Change_Impact
+
+Uses:
+
+* guest count changes
+* budget differences
+* missing data
+
+### 10_Risks
+
+Uses:
+
+* risks
+
+### 11_Final_Brief
+
+Uses:
+
+* finalBrief
+* event summary data
+
+## Required MVP Behavior
+
+The system must generate valid empty structures even when the user provides partial information.
+
+Unknown information should be marked as:
+
+"לא ידוע"
+
+Do not invent missing data.
+
+Do not create fake KPIs.
+
+Do not auto-seat guests.
+
+Do not store data after workbook generation unless explicitly needed for the local session.
+
+```
+```

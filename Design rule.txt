@@ -1,0 +1,20 @@
+## Non-Negotiable Product Rules
+
+### Rule #1 — Hebrew First Product
+
+EventSheet AI is a Hebrew-first product.
+
+The final software, user interface, Excel workbook, generated reports, operational briefings, dropdown values, sheet names, and demo environment must be presented in Hebrew.
+
+The system must support RTL layout by default.
+
+English may be used internally for development, architecture, code, documentation, and AI prompts, but the final user-facing product must feel native to an Israeli event manager.
+
+This rule applies to:
+- Web interface
+- Excel workbook
+- AI-generated outputs
+- Validation messages
+- Status indicators
+- Dropdown values
+- Presentation environment
