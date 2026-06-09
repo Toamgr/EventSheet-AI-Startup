@@ -174,6 +174,7 @@ export function buildWorkbook(eventData = {}, preview = {}, appBaseUrl = getDefa
     ["הושבה", linkValue("פתח הושבה", links.seating), "אפליקציה"],
     ["ספקים", linkValue("פתח ספקים", links.suppliers), "אפליקציה"],
     ["סיכונים", linkValue("פתח סיכונים", links.risks), "אפליקציה"],
+    ["נוצר בתאריך", formatIsoForSheet(new Date().toISOString()), "תאריך ושעת הפקת החוברת"],
   ]);
 
   addSheet(workbook, sheetNames[1], guestRows);
@@ -448,7 +449,7 @@ function buildSupplierRows(suppliers) {
     ["שולם לספקים", { formula: "SUM(E11:E999)" }, "מצב תשלום"],
     ["יתרה לספקים", { formula: "SUM(F11:F999)" }, "מצב תשלום"],
     ["", "", ""],
-    ["תחום", "שם ספק", "טלפון", "עלות חוזה", "שולם", "יתרה", "סטטוס", "חסר טלפון", "חסר עלות", "לא שולם"],
+    ["תחום", "שם ספק", "טלפון", "עלות חוזה", "שולם", "יתרה", "סטטוס", "חסר טלפון", "חסר עלות", "לא שולם", "איש קשר", "אימייל", "תאריך יעד"],
     ...(suppliers.length ? suppliers.map((supplier, index) => {
       const row = 11 + index;
       return [
@@ -462,8 +463,11 @@ function buildSupplierRows(suppliers) {
         { formula: `IF(B${row}="","",IF(C${row}="","כן","לא"))` },
         { formula: `IF(B${row}="","",IF(D${row}=0,"כן","לא"))` },
         { formula: `IF(B${row}="","",IF(F${row}>0,"כן","לא"))` },
+        supplier.contact || "",
+        supplier.email || "",
+        supplier.dueDate || "",
       ];
-    }) : [[PLACEHOLDER, "", "", "", "", "", "", "", "", ""]]),
+    }) : [[PLACEHOLDER, "", "", "", "", "", "", "", "", "", "", "", ""]]),
   ];
 }
 
@@ -645,6 +649,7 @@ function applySheetEditability(sheet) {
     for (let row = 11; row <= 999; row += 1) {
       unlockRange(sheet, row, 1, 5);
       unlockRange(sheet, row, 7, 7);
+      unlockRange(sheet, row, 11, 13);
       setLockedFormula(sheet.getCell(row, 6), `IF(B${row}="","",MAX(0,D${row}-E${row}))`);
       setLockedFormula(sheet.getCell(row, 8), `IF(B${row}="","",IF(C${row}="","כן","לא"))`);
       setLockedFormula(sheet.getCell(row, 9), `IF(B${row}="","",IF(D${row}=0,"כן","לא"))`);
@@ -727,7 +732,8 @@ function applyNumberFormats(sheet) {
     const rowLabel = String(row.getCell(1).value || "");
     row.eachCell((cell) => {
       const header = String(sheet.getRow(1).getCell(cell.col).value || "");
-      if (percentLabels.some((label) => rowLabel.includes(label) || header.includes(label))) cell.numFmt = "0%";
+      const isNumericOrFormula = typeof cell.value === "number" || Boolean(cell.value?.formula);
+      if (percentLabels.some((label) => rowLabel.includes(label) || header.includes(label)) && isNumericOrFormula) cell.numFmt = "0%";
       if (/עלות|תקציב|שולם|יתרה|סכום/.test(rowLabel) || /עלות|שולם|יתרה|סכום/.test(header)) cell.numFmt = "₪#,##0";
     });
   });
