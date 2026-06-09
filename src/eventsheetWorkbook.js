@@ -327,6 +327,17 @@ function buildSeatingRows(preview) {
     ];
   });
 
+  const plan = preview.seatingPlan;
+  const assignmentBlock = [];
+  if (plan?.appliedAt && plan.assignments?.length > 0) {
+    const appliedDate = formatIsoForSheet(plan.appliedAt);
+    assignmentBlock.push(["", "", "", "", "", "", "", "", "", "", "", ""]);
+    assignmentBlock.push(["", `שיבוץ מאושר — הוחל: ${appliedDate}`, "שם אורח", "קטגוריה", "", "", "", "", "", "", "", ""]);
+    plan.assignments.forEach((a) => {
+      assignmentBlock.push(["", a.tableLabel || `שולחן ${a.table}`, a.guestName || "", a.category || "", "", "", "", "", "", "", "", ""]);
+    });
+  }
+
   return [
     ["מדד", "ערך", "הערה"],
     ["אורחים משובצים", { formula: "COUNTIF('02_Guest_Database'!F2:F999,\">0\")" }, "מתעדכן מרשימת האורחים"],
@@ -343,6 +354,7 @@ function buildSeatingRows(preview) {
     ["שולחן", "כינוי", "קטגוריה", "קיבולת", "אורחים משובצים", "מקומות פנויים", "תפוסה", "אזהרת קיבולת", "תמהיל קטגוריות", "סוג", "אזור", "הערות והמלצות"],
     ...(tableRows.length ? tableRows : [[PLACEHOLDER, "", "", "", "", "", "", "", "", "", "", ""]]),
     ...(preview.seatingRecommendations?.length ? [["", "המלצות הושבה", "", "", "", "", "", "המלצה בלבד", "", "", "", preview.seatingRecommendations.join("\n")]] : []),
+    ...assignmentBlock,
   ];
 }
 
@@ -848,6 +860,14 @@ function countBy(rows, key) {
 
 function splitTags(value) {
   return String(value || "").split(/,|،|\/|\|/).map((part) => part.trim()).filter(Boolean);
+}
+
+function formatIsoForSheet(iso) {
+  try {
+    return new Date(iso).toLocaleDateString("he-IL", { year: "numeric", month: "2-digit", day: "2-digit" });
+  } catch {
+    return iso || "";
+  }
 }
 
 function statusFromPayment(amount = 0, paid = 0) {

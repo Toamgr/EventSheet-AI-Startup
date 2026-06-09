@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { buildWorkbook, parseMessyEventInfo, sheetNames, workbookToBuffer, workbookVersion } from "../src/eventsheetWorkbook.js";
 import { createEventRecord, deleteEventRecord, listEventRecords, loadEventRecord, saveEventRecord } from "../src/eventStorage.js";
-import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, seatingPlanToNotes } from "../src/seatingIntelligence.js";
+import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, seatingPlanToNotes, validateAndApplySeatingPlan } from "../src/seatingIntelligence.js";
 
 const store = new Map();
 global.localStorage = {
@@ -50,6 +50,107 @@ const seatingAlgorithmOk = seatingPlan.recommendations.some((recommendation) => 
   && seatingPlan.recommendations.some((recommendation) => recommendation.category === "משפחה כלה" && recommendation.status === "split" && recommendation.tables.length === 2)
   && seatingPlan.pendingGuests.length === 1
   && seatingTables.every((table) => appliedSeatingGuests.filter((guest) => Number(guest.table) === Number(table.table)).length <= table.capacity);
+
+const seatingCapacityGuardOk = (() => {
+  // Master invariant: no table ever exceeds capacity after apply
+  const g1 = [
+    { name: "א", status: "attending", category: "X", table: 0 },
+    { name: "ב", status: "attending", category: "X", table: 0 },
+    { name: "ג", status: "attending", category: "X", table: 0 },
+    { name: "ד", status: "attending", category: "Y", table: 0 },
+    { name: "ה", status: "attending", category: "Y", table: 0 },
+  ];
+  const t1 = [
+    { table: 1, label: "שולחן 1", capacity: 3, category: "X" },
+    { table: 2, label: "שולחן 2", capacity: 2, category: "Y" },
+  ];
+  const p1 = buildSeatingRecommendationPlan(g1, t1, { includeExistingAssignments: true });
+  const a1 = applySeatingRecommendationPlan(g1, p1);
+  const masterInvariant = t1.every((t) => a1.filter((g) => Number(g.table) === t.table).length <= t.capacity);
+
+  // Exact capacity: all placed, none unassigned
+  const g2 = [
+    { name: "א", status: "attending", category: "X", table: 0 },
+    { name: "ב", status: "attending", category: "X", table: 0 },
+    { name: "ג", status: "attending", category: "X", table: 0 },
+  ];
+  const t2 = [{ table: 1, label: "שולחן 1", capacity: 3, category: "X" }];
+  const p2 = buildSeatingRecommendationPlan(g2, t2, { includeExistingAssignments: true });
+  const exactCapacity = p2.assignments.length === 3 && p2.unassignedGuests.length === 0
+    && p2.recommendations[0]?.status === "together";
+
+  // Over capacity: unassigned guests and warnings
+  const g3 = Array.from({ length: 10 }, (_, i) => ({ name: `אורח${i}`, status: "attending", category: "X", table: 0 }));
+  const t3 = [{ table: 1, label: "שולחן 1", capacity: 8, category: "X" }];
+  const p3 = buildSeatingRecommendationPlan(g3, t3, { includeExistingAssignments: true });
+  const a3 = applySeatingRecommendationPlan(g3, p3);
+  const overCapacity = p3.unassignedGuests.length === 2
+    && p3.warnings.length > 0
+    && a3.filter((g) => Number(g.table) === 1).length <= 8;
+
+  // Zero-capacity table gets no guests
+  const g4 = [{ name: "א", status: "attending", category: "X", table: 0 }];
+  const t4 = [
+    { table: 1, label: "שולחן 1", capacity: 0, category: "X" },
+    { table: 2, label: "שולחן 2", capacity: 5, category: "X" },
+  ];
+  const p4 = buildSeatingRecommendationPlan(g4, t4, { includeExistingAssignments: true });
+  const a4 = applySeatingRecommendationPlan(g4, p4);
+  const zeroCapacity = a4.filter((g) => Number(g.table) === 1).length === 0;
+
+  // No tables: all confirmed guests unassigned
+  const g5 = [{ name: "א", status: "attending", category: "X", table: 0 }];
+  const p5 = buildSeatingRecommendationPlan(g5, []);
+  const noTables = p5.assignments.length === 0 && p5.warnings.length > 0 && p5.unassignedGuests.length === 1;
+
+  // Split across two tables: all placed, none unassigned
+  const g6 = Array.from({ length: 5 }, (_, i) => ({ name: `אורח${i}`, status: "attending", category: "X", table: 0 }));
+  const t6 = [
+    { table: 1, label: "שולחן 1", capacity: 3, category: "X" },
+    { table: 2, label: "שולחן 2", capacity: 3, category: "X" },
+  ];
+  const p6 = buildSeatingRecommendationPlan(g6, t6, { includeExistingAssignments: true });
+  const a6 = applySeatingRecommendationPlan(g6, p6);
+  const splitAllPlaced = p6.assignments.length === 5 && p6.unassignedGuests.length === 0
+    && t6.every((t) => a6.filter((g) => Number(g.table) === t.table).length <= t.capacity);
+
+  // Split with leftovers: 5 guests, capacity 4 total → 1 unassigned
+  const g7 = Array.from({ length: 5 }, (_, i) => ({ name: `אורח${i}`, status: "attending", category: "X", table: 0 }));
+  const t7 = [
+    { table: 1, label: "שולחן 1", capacity: 2, category: "X" },
+    { table: 2, label: "שולחן 2", capacity: 2, category: "X" },
+  ];
+  const p7 = buildSeatingRecommendationPlan(g7, t7, { includeExistingAssignments: true });
+  const splitWithLeftovers = p7.unassignedGuests.length === 1 && p7.assignments.length === 4;
+
+  // Manual override locked: existing table preserved in default mode
+  const g8 = [
+    { name: "מנואל", status: "attending", category: "X", table: 2 },
+    { name: "אוטו", status: "attending", category: "X", table: 0 },
+  ];
+  const t8 = [
+    { table: 1, label: "שולחן 1", capacity: 5, category: "X" },
+    { table: 2, label: "שולחן 2", capacity: 5, category: "X" },
+  ];
+  const p8 = buildSeatingRecommendationPlan(g8, t8, { includeExistingAssignments: false });
+  const a8 = applySeatingRecommendationPlan(g8, p8);
+  const manualLocked = Number(a8.find((g) => g.name === "מנואל")?.table) === 2;
+
+  // Pre-apply guard: tampered plan with over-capacity assignment is rejected
+  const g9 = Array.from({ length: 3 }, (_, i) => ({ name: `אורח${i}`, status: "attending", category: "X", table: 0 }));
+  const t9 = [{ table: 1, label: "שולחן 1", capacity: 2, category: "X" }];
+  const tamperedPlan = {
+    assignments: [
+      { guestIndex: 0, guestName: "אורח0", category: "X", table: 1, tableLabel: "שולחן 1" },
+      { guestIndex: 1, guestName: "אורח1", category: "X", table: 1, tableLabel: "שולחן 1" },
+      { guestIndex: 2, guestName: "אורח2", category: "X", table: 1, tableLabel: "שולחן 1" },
+    ],
+  };
+  const r9 = validateAndApplySeatingPlan(g9, t9, tamperedPlan);
+  const preApplyGuard = r9.ok === false && typeof r9.error === "string" && r9.error.length > 0;
+
+  return masterInvariant && exactCapacity && overCapacity && zeroCapacity && noTables && splitAllPlaced && splitWithLeftovers && manualLocked && preApplyGuard;
+})();
 
 const eventScopedCategoriesOk = (() => {
   const first = saveEventRecord(createEventRecord({ name: "קטגוריות א", preview: { guests: [{ name: "א", category: "צבא", status: "מאשר הגעה" }] } }));
@@ -222,6 +323,7 @@ if (
   !persistenceOk ||
   !isolationOk ||
   !seatingAlgorithmOk ||
+  !seatingCapacityGuardOk ||
   !eventScopedCategoriesOk ||
   !parserOk ||
   !noDefaultSeating ||
@@ -245,6 +347,7 @@ if (
     persistenceOk,
     isolationOk,
     seatingAlgorithmOk,
+    seatingCapacityGuardOk,
     eventScopedCategoriesOk,
     parserOk,
     parserDetails: {
@@ -282,6 +385,7 @@ console.log(JSON.stringify({
   isolationOk,
   seatingAlgorithm: {
     ok: seatingAlgorithmOk,
+    capacityGuard: seatingCapacityGuardOk,
     recommendations: seatingPlan.recommendations.length,
     assignments: seatingPlan.assignments.length,
     pendingGuests: seatingPlan.pendingGuests.length,

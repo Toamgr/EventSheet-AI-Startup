@@ -28,6 +28,7 @@ export function buildSeatingRecommendationPlan(guests = [], tables = [], options
       generatedAt: new Date().toISOString(),
       includeExistingAssignments,
       assignments: [],
+      unassignedGuests: confirmedGuests.map((g) => ({ guestIndex: g._index, name: g.name, category: g.category })),
       recommendations: [],
       notes: ["עדיין לא הוגדרו שולחנות. הוסיפו שולחנות וקיבולת כדי להתחיל שיבוץ."],
       warnings: ["עדיין לא הוגדרו שולחנות."],
@@ -56,6 +57,7 @@ export function buildSeatingRecommendationPlan(guests = [], tables = [], options
   const recommendations = [];
   const assignments = [];
   const warnings = [];
+  const unassignedGuests = [];
 
   groups.forEach((group) => {
     if (!group.guests.length) return;
@@ -108,6 +110,9 @@ export function buildSeatingRecommendationPlan(guests = [], tables = [], options
       const missing = group.guests.length - cursor;
       const warning = `אין מספיק מקומות לקבוצת '${group.category}'. חסרים ${missing} מקומות.`;
       warnings.push(warning);
+      group.guests.slice(cursor).forEach((guest) => {
+        unassignedGuests.push({ guestIndex: guest._index, name: guest.name, category: guest.category });
+      });
       recommendations.push({
         category: group.category,
         guestCount: group.guests.length,
@@ -133,6 +138,7 @@ export function buildSeatingRecommendationPlan(guests = [], tables = [], options
     });
   });
 
+  assertNoTableExceedsCapacity(assignments, normalizedTables);
   const totalCapacity = normalizedTables.reduce((sum, table) => sum + table.capacity, 0);
   const confirmedCount = confirmedGuests.length;
   if (totalCapacity < confirmedCount) warnings.push(`אין מספיק מקומות לכל האורחים. חסרים ${confirmedCount - totalCapacity} מקומות.`);
@@ -149,6 +155,7 @@ export function buildSeatingRecommendationPlan(guests = [], tables = [], options
     includeExistingAssignments,
     lockedAssignments,
     assignments,
+    unassignedGuests,
     recommendations,
     notes,
     warnings,
@@ -161,6 +168,36 @@ export function applySeatingRecommendationPlan(guests = [], plan) {
   const assignmentByGuest = new Map((plan?.assignments || []).map((assignment) => [assignment.guestIndex, assignment.table]));
   if (!assignmentByGuest.size) return guests;
   return guests.map((guest, index) => assignmentByGuest.has(index) ? { ...guest, table: assignmentByGuest.get(index) } : guest);
+}
+
+export function validateAndApplySeatingPlan(guests = [], tables = [], plan) {
+  if (!plan?.assignments?.length) {
+    return { ok: false, error: "אין שיבוץ לביצוע. חשבו המלצות הושבה תחילה." };
+  }
+  const capacities = new Map(
+    tables
+      .filter((t) => Number(t.table) > 0)
+      .map((t) => [Number(t.table), { capacity: Math.max(0, Number(t.capacity) || 0), label: t.label || `שולחן ${t.table}` }])
+  );
+  const assignedByIndex = new Map((plan.assignments || []).map((a) => [a.guestIndex, Number(a.table)]));
+  const countByTable = new Map();
+  guests.forEach((guest, index) => {
+    const finalTable = assignedByIndex.has(index) ? assignedByIndex.get(index) : Number(guest.table || 0);
+    if (!finalTable) return;
+    countByTable.set(finalTable, (countByTable.get(finalTable) || 0) + 1);
+  });
+  const violations = [];
+  for (const [tableNum, count] of countByTable.entries()) {
+    const def = capacities.get(tableNum);
+    if (!def) continue;
+    if (count > def.capacity) {
+      violations.push(`${def.label}: ${count} אורחים, קיבולת ${def.capacity}`);
+    }
+  }
+  if (violations.length) {
+    return { ok: false, error: `לא ניתן להחיל שיבוץ — חריגת קיבולת:\n${violations.join("\n")}` };
+  }
+  return { ok: true, guests: applySeatingRecommendationPlan(guests, plan) };
 }
 
 export function seatingPlanToNotes(plan) {
@@ -181,6 +218,15 @@ export function getSeatingMetrics(guests = [], tables = []) {
     capacityGap: totalCapacity - confirmedGuests.length,
     overCapacityTables,
   };
+}
+
+function assertNoTableExceedsCapacity(assignments, tables) {
+  for (const table of tables) {
+    const count = assignments.filter((a) => a.table === table.table).length;
+    if (count > table.capacity) {
+      throw new Error(`שגיאה פנימית: שולחן ${table.table} קיבל ${count} אורחים אך קיבולתו ${table.capacity}`);
+    }
+  }
 }
 
 function placeGuests(guests, table, assignments) {

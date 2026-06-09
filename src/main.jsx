@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { buildWorkbook as compileWorkbook, generateSeatingRecommendations, parseMessyEventInfo as parseEventInfo, workbookToBuffer } from "./eventsheetWorkbook.js";
 import { buildEventUrl, createEmptyPreview, createEventRecord, deleteEventRecord, getEventIdFromUrl, listEventRecords, loadEventRecord, saveEventRecord } from "./eventStorage.js";
-import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, getSeatingMetrics, seatingPlanToNotes } from "./seatingIntelligence.js";
+import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, getSeatingMetrics, seatingPlanToNotes, validateAndApplySeatingPlan } from "./seatingIntelligence.js";
 import "./styles.css";
 
 const sampleText = `אירוע: חתונת נועה ודניאל
@@ -94,6 +94,7 @@ function App() {
   const [newTable, setNewTable] = useState({ table: "", capacity: "10", category: "", type: "", zone: "", notes: "" });
   const [workbookReady, setWorkbookReady] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [applyError, setApplyError] = useState(null);
 
   useEffect(() => {
     setEventIndex(listEventRecords());
@@ -358,6 +359,7 @@ function App() {
   }
 
   function calculateSeatingRecommendations(includeExistingAssignments = false) {
+    setApplyError(null);
     const plan = buildSeatingRecommendationPlan(preview.guests, preview.seating, { includeExistingAssignments });
     updatePreview((current) => ({
       ...current,
@@ -369,11 +371,17 @@ function App() {
   function applySeatingRecommendations() {
     const plan = preview.seatingPlan;
     if (!plan?.assignments?.length) return;
+    const result = validateAndApplySeatingPlan(preview.guests, preview.seating, plan);
+    if (!result.ok) {
+      setApplyError(result.error);
+      return;
+    }
+    setApplyError(null);
     updatePreview((current) => {
       const seatingRecommendations = seatingPlanToNotes(plan);
       return {
         ...current,
-        guests: applySeatingRecommendationPlan(current.guests, plan),
+        guests: result.guests,
         seatingRecommendations,
         seatingPlan: {
           ...plan,
@@ -386,6 +394,7 @@ function App() {
   }
 
   function clearSeatingRecommendations() {
+    setApplyError(null);
     updatePreview((current) => ({
       ...current,
       seatingPlan: null,
@@ -416,6 +425,7 @@ function App() {
       ) : (
         <Workspace
           activeTab={activeTab}
+          applyError={applyError}
           categories={categories}
           eventData={record}
           filteredGuestEntries={filteredGuestEntries}
@@ -721,6 +731,7 @@ function EditableGuestRow({ categories, guest, index, onDelete, onUpdate }) {
 
 function SeatingPanel(props) {
   const {
+    applyError,
     eventData,
     newTable,
     onAddTable,
@@ -755,6 +766,7 @@ function SeatingPanel(props) {
       <SeatingSummaryStrip metrics={seatingMetrics} />
       {!hasRealTables && <div className="seating-empty-guidance">עדיין לא הוגדרו שולחנות. הוסיפו שולחנות וקיבולת כדי להתחיל שיבוץ.</div>}
       <SeatingRecommendationPanel
+        applyError={applyError}
         hasRealTables={hasRealTables}
         onApply={onApplySeatingRecommendations}
         onCalculate={onCalculateSeatingRecommendations}
@@ -840,21 +852,27 @@ function SeatingSummaryStrip({ metrics }) {
   );
 }
 
-function SeatingRecommendationPanel({ hasRealTables, onApply, onCalculate, onClear, plan }) {
+function SeatingRecommendationPanel({ applyError, hasRealTables, onApply, onCalculate, onClear, plan }) {
   return (
     <section className="seating-recommendation-panel">
       <div className="recommendation-panel-head">
         <div>
           <strong>המלצות הושבה לפי קבוצות</strong>
           <span>המערכת מציעה שיבוץ. הזוג או מנהל האירוע מאשרים ומחליטים.</span>
+          {plan?.appliedAt && <small className="applied-at-label">הוחל: {formatDateTime(plan.appliedAt)}</small>}
         </div>
         <div className="recommendation-actions">
           <button className="secondary-button" type="button" disabled={!hasRealTables} onClick={() => onCalculate(false)}>חשב המלצות הושבה</button>
           <button className="outline-button" type="button" disabled={!hasRealTables} onClick={() => onCalculate(true)}>חשב מחדש כולל שיבוצים קיימים</button>
-          <button className="primary-button" type="button" disabled={!plan?.assignments?.length} onClick={onApply}>החל המלצות</button>
+          <button className="primary-button" type="button" disabled={!plan?.assignments?.length} onClick={onApply}>החל שיבוץ אוטומטי</button>
           <button className="text-button" type="button" disabled={!plan} onClick={onClear}>נקה המלצות</button>
         </div>
       </div>
+      {applyError && (
+        <div className="recommendation-warning apply-error">
+          {applyError.split("\n").map((line, i) => <p key={i}>{line}</p>)}
+        </div>
+      )}
       {plan ? (
         <div className="recommendation-list">
           {(plan.recommendations || []).length ? plan.recommendations.map((recommendation) => (
@@ -872,6 +890,11 @@ function SeatingRecommendationPanel({ hasRealTables, onApply, onCalculate, onCle
             </article>
           )) : <EmptyState compact text="אין עדיין המלצות. לחצו על חישוב המלצות לאחר הגדרת שולחנות וקיבולת." />}
           {(plan.warnings || []).map((warning) => <div className="recommendation-warning" key={warning}>{warning}</div>)}
+          {plan.unassignedGuests?.length > 0 && (
+            <div className="recommendation-warning">
+              לא שובצו {plan.unassignedGuests.length} אורחים מאשרים — אין קיבולת מספיקה: {plan.unassignedGuests.map((g) => g.name).join(", ")}
+            </div>
+          )}
           {plan.pendingGuests?.length > 0 && <div className="recommendation-warning muted">טרם השיבו — לא שובצו: {plan.pendingGuests.map((guest) => guest.name).join(", ")}</div>}
         </div>
       ) : (
