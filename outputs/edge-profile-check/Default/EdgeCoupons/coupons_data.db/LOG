@@ -1,5 +1,0 @@
-2026/06/09-01:04:42.435 c6f8 Creating DB C:\Users\toamg\Downloads\EventSheet AI Startup\outputs\edge-profile-check\Default\EdgeCoupons/coupons_data.db since it was missing.
-2026/06/09-01:04:42.527 c6f8 Reusing MANIFEST C:\Users\toamg\Downloads\EventSheet AI Startup\outputs\edge-profile-check\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
-2026/06/09-01:04:43.738 672c Level-0 table #5: started
-2026/06/09-01:04:43.746 672c Level-0 table #5: 682665 bytes OK
-2026/06/09-01:04:43.749 672c Delete type=0 #3
