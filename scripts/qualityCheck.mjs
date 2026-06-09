@@ -264,6 +264,7 @@ const suppliers = loaded.getWorksheet("07_Suppliers");
 const budget = loaded.getWorksheet("08_Budget");
 const risks = loaded.getWorksheet("10_Risks");
 const finalBrief = loaded.getWorksheet("11_Final_Brief");
+const guestLookup = loaded.getWorksheet("12_חיפוש_שולחן");
 const metadata = loaded.getWorksheet("_EventSheet_Metadata");
 
 const viewsOk = loaded.worksheets.every((sheet) => sheet.views?.[0]?.rightToLeft === true || sheet.name === "_EventSheet_Metadata");
@@ -316,6 +317,11 @@ const seatingExportOk = seating.getCell("I14").value
   && seating.getCell("L14").value !== undefined
   && String(finalBrief.getCell("B7").value || "").includes("המלצה");
 
+const guestLookupOk = Boolean(guestLookup)
+  && String(guestLookup.getCell("A1").value || "").includes("חיפוש")
+  && guestLookup.getCell("A3").value === "שם אורח"
+  && guestLookup.getCell("A4").value !== null;
+
 const emptyWorkbook = buildWorkbook({ eventId: "empty-event", name: "בדיקת ריק" }, {
   guests: [],
   seating: [],
@@ -331,6 +337,8 @@ const emptySeating = emptyLoaded.getWorksheet("05_Seating");
 const noFakeSeatingExported = emptySeating.getCell("A14").value === "לא זוהה מידע — לעדכון ידני"
   && emptySeating.getCell("A15").value !== 1
   && emptyLoaded.getWorksheet("06_Venue").getCell("B5").value === 0;
+const emptyGuestLookupOk = Boolean(emptyLoaded.getWorksheet("12_חיפוש_שולחן"))
+  && emptyLoaded.getWorksheet("12_חיפוש_שולחן").getCell("A3").value === "שם אורח";
 
 const combinedText = [
   summary.getCell("B2").value,
@@ -377,7 +385,9 @@ if (
   !supplierInputCellsEditable ||
   formulaChecks.length < 7 ||
   !seatingExportOk ||
+  !guestLookupOk ||
   !noFakeSeatingExported ||
+  !emptyGuestLookupOk ||
   !hiddenTechnicalLanguageOk ||
   !printSetupOk
 ) {
@@ -412,7 +422,9 @@ if (
     supplierInputCellsEditable,
     formulaChecks,
     seatingExportOk,
+    guestLookupOk,
     noFakeSeatingExported,
+    emptyGuestLookupOk,
     hiddenTechnicalLanguageOk,
     printSetupOk,
     combinedText,
@@ -447,7 +459,10 @@ console.log(JSON.stringify({
     hasRtlXml,
     protectedOk,
     formulaChecks: formulaChecks.length,
+    seatingExportOk,
+    guestLookupOk,
     noFakeSeatingExported,
+    emptyGuestLookupOk,
     hiddenTechnicalLanguageOk,
     printSetupOk,
   },

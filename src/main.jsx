@@ -1089,14 +1089,14 @@ function WorkbookPanel({ eventId, isGenerating, onGenerate, workbookReady }) {
       <div className="workbook-card">
         <div className="workbook-icon"><FileSpreadsheet size={34} /></div>
         <p className="eyebrow">ספר תכנון</p>
-        <h2>{workbookReady ? "Workbook ready" : "חוברת Excel מוכנה להפקה"}</h2>
-        <p>11 sheets generated · קישורים חוזרים לאותו eventId · הרשומה המקומית היא בסיס ההפקה.</p>
+        <h2>{workbookReady ? "החוברת מוכנה" : "חוברת Excel מוכנה להפקה"}</h2>
+        <p>12 גיליונות הופקו · קישורים חוזרים לאותו eventId · הרשומה המקומית היא בסיס ההפקה.</p>
         <small className="event-id-label">eventId: {eventId}</small>
         <button className="primary-button large" type="button" onClick={onGenerate} disabled={isGenerating}>
           <Download size={19} />
           {isGenerating ? "מפיק חוברת..." : workbookReady ? "הורד שוב את החוברת" : "הפק חוברת Excel"}
         </button>
-        {workbookReady && <div className="ready-note"><CheckCircle2 size={18} /><span>11 sheets generated</span></div>}
+        {workbookReady && <div className="ready-note"><CheckCircle2 size={18} /><span>12 גיליונות הופקו</span></div>}
       </div>
     </div>
   );

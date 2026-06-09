@@ -12,6 +12,7 @@ export const sheetNames = [
   "09_Change_Impact",
   "10_Risks",
   "11_Final_Brief",
+  "12_חיפוש_שולחן",
 ];
 
 export const workbookVersion = "2.0-local-event-record";
@@ -271,6 +272,8 @@ export function buildWorkbook(eventData = {}, preview = {}, appBaseUrl = getDefa
     ["הערת מקור אמת", "החוברת היא ספר התכנון התפעולי. האפליקציה משמשת לסקירה ויזואלית וניווט."],
   ]);
 
+  addSheet(workbook, sheetNames[11], buildGuestLookupRows(safePreview.guests, safePreview.seating, eventName));
+
   addMetadataSheet(workbook, eventData, appBaseUrl);
   return workbook;
 }
@@ -327,17 +330,6 @@ function buildSeatingRows(preview) {
     ];
   });
 
-  const plan = preview.seatingPlan;
-  const assignmentBlock = [];
-  if (plan?.appliedAt && plan.assignments?.length > 0) {
-    const appliedDate = formatIsoForSheet(plan.appliedAt);
-    assignmentBlock.push(["", "", "", "", "", "", "", "", "", "", "", ""]);
-    assignmentBlock.push(["", `שיבוץ מאושר — הוחל: ${appliedDate}`, "שם אורח", "קטגוריה", "", "", "", "", "", "", "", ""]);
-    plan.assignments.forEach((a) => {
-      assignmentBlock.push(["", a.tableLabel || `שולחן ${a.table}`, a.guestName || "", a.category || "", "", "", "", "", "", "", "", ""]);
-    });
-  }
-
   return [
     ["מדד", "ערך", "הערה"],
     ["אורחים משובצים", { formula: "COUNTIF('02_Guest_Database'!F2:F999,\">0\")" }, "מתעדכן מרשימת האורחים"],
@@ -353,9 +345,96 @@ function buildSeatingRows(preview) {
     ["", "", ""],
     ["שולחן", "כינוי", "קטגוריה", "קיבולת", "אורחים משובצים", "מקומות פנויים", "תפוסה", "אזהרת קיבולת", "תמהיל קטגוריות", "סוג", "אזור", "הערות והמלצות"],
     ...(tableRows.length ? tableRows : [[PLACEHOLDER, "", "", "", "", "", "", "", "", "", "", ""]]),
-    ...(preview.seatingRecommendations?.length ? [["", "המלצות הושבה", "", "", "", "", "", "המלצה בלבד", "", "", "", preview.seatingRecommendations.join("\n")]] : []),
-    ...assignmentBlock,
+    ...(preview.seatingRecommendations?.length
+      ? [
+          ["", "המלצות הושבה", "", "", "", "", "", "", "", "", "", "המלצה בלבד"],
+          ...preview.seatingRecommendations.map((note) => ["", "", "", "", "", "", "", "", "", "", "", note]),
+        ]
+      : []),
+    ...buildGuestByTableBlock(preview),
   ];
+}
+
+function buildGuestByTableBlock(preview) {
+  const BLANK_ROW = ["", "", "", "", "", "", "", "", "", "", "", ""];
+  const guestsByTable = new Map();
+  preview.guests.forEach((guest) => {
+    const tableNum = Number(guest.table) || 0;
+    if (tableNum > 0) {
+      if (!guestsByTable.has(tableNum)) guestsByTable.set(tableNum, []);
+      guestsByTable.get(tableNum).push(guest);
+    }
+  });
+  const unassignedConfirmed = preview.guests
+    .filter((g) => g.status === STATUS_ATTENDING && !Number(g.table))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "he"));
+  if (guestsByTable.size === 0 && unassignedConfirmed.length === 0) return [];
+
+  const rows = [
+    BLANK_ROW,
+    ["אורחים משובצים לפי שולחן", "", "", "", "", "", "", "", "", "", "", ""],
+  ];
+
+  Array.from(guestsByTable.keys())
+    .sort((a, b) => a - b)
+    .forEach((tableNum) => {
+      const tableInfo = preview.seating.find((t) => Number(t.table) === tableNum);
+      const capacity = tableInfo?.capacity ?? "?";
+      const label = tableInfo?.label || `שולחן ${tableNum}`;
+      const guestsAtTable = [...guestsByTable.get(tableNum)].sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "", "he")
+      );
+      rows.push([tableNum, label, `${guestsAtTable.length} מתוך ${capacity}`, "", "", "", "", "", "", "", "", ""]);
+      guestsAtTable.forEach((guest) => {
+        rows.push(["", guest.name || "", guest.category || "", guest.status || "", guest.dietary || "", "", "", "", "", "", "", ""]);
+      });
+    });
+
+  if (unassignedConfirmed.length > 0) {
+    rows.push(BLANK_ROW);
+    rows.push([`אורחים מאשרים ללא שיבוץ — ${unassignedConfirmed.length}`, "", "", "", "", "", "", "", "", "", "", ""]);
+    unassignedConfirmed.forEach((guest) => {
+      rows.push(["", guest.name || "", guest.category || "", "", guest.dietary || "", "", "", "", "", "", "", ""]);
+    });
+  }
+
+  return rows;
+}
+
+function buildGuestLookupRows(guests, seating, eventName) {
+  const BLANK_ROW = ["", "", "", "", "", ""];
+  const sorted = [...guests].sort((a, b) => (a.name || "").localeCompare(b.name || "", "he"));
+  const assigned = sorted.filter((g) => Number(g.table) > 0);
+  const unassignedConfirmed = sorted.filter((g) => !Number(g.table) && g.status === STATUS_ATTENDING);
+
+  const rows = [
+    [`חיפוש שולחן — ${eventName || ""}`, "", "", "", "", ""],
+    BLANK_ROW,
+    ["שם אורח", "שולחן", "שם שולחן", "קטגוריה", "תזונה", "סטטוס"],
+    ...(assigned.length
+      ? assigned.map((guest) => {
+          const tableInfo = seating.find((t) => Number(t.table) === Number(guest.table));
+          return [
+            guest.name || "",
+            Number(guest.table),
+            tableInfo?.label || `שולחן ${guest.table}`,
+            guest.category || "",
+            guest.dietary || "ללא",
+            guest.status || "",
+          ];
+        })
+      : [[PLACEHOLDER, "", "", "", "", ""]]),
+  ];
+
+  if (unassignedConfirmed.length > 0) {
+    rows.push(BLANK_ROW);
+    rows.push([`אורחים מאשרים ללא שיבוץ — ${unassignedConfirmed.length}`, "", "", "", "", ""]);
+    unassignedConfirmed.forEach((guest) => {
+      rows.push([guest.name || "", "—", "ללא שיבוץ", guest.category || "", guest.dietary || "ללא", guest.status || ""]);
+    });
+  }
+
+  return rows;
 }
 
 function buildSupplierRows(suppliers) {
@@ -498,12 +577,48 @@ function applyProfessionalSheetStyle(sheet) {
       });
     });
   }
+  if (sheet.name === "05_Seating") {
+    sheet.pageSetup.orientation = "landscape";
+    sheet.pageSetup.printTitlesRow = "13:13";
+  }
   if (sheet.name === "11_Final_Brief") {
     sheet.pageSetup.orientation = "portrait";
     sheet.pageSetup.printArea = "A1:B8";
     sheet.getColumn(1).width = 24;
     sheet.getColumn(2).width = 74;
     sheet.eachRow((row) => { row.height = 28; });
+  }
+  if (sheet.name === "12_חיפוש_שולחן") {
+    sheet.eachRow((row) => {
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.protection = { locked: true };
+      });
+    });
+    sheet.getRow(1).eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 14 };
+      cell.fill = fill("FF123C43");
+    });
+    sheet.getRow(1).height = 30;
+    sheet.getRow(3).eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = fill("FF1F6F68");
+      cell.border = border();
+      cell.protection = { locked: true };
+    });
+    sheet.getRow(3).height = 24;
+    sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 6 } };
+    sheet.views = [{ rightToLeft: true, state: "frozen", ySplit: 3, showGridLines: false }];
+    sheet.getColumn(1).width = 26;
+    sheet.getColumn(2).width = 10;
+    sheet.getColumn(3).width = 22;
+    sheet.getColumn(4).width = 22;
+    sheet.getColumn(5).width = 16;
+    sheet.getColumn(6).width = 18;
+    sheet.pageSetup.orientation = "portrait";
+    sheet.pageSetup.fitToPage = true;
+    sheet.pageSetup.fitToWidth = 1;
+    sheet.pageSetup.fitToHeight = 0;
+    sheet.pageSetup.printTitlesRow = "3:3";
   }
 }
 
