@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { buildWorkbook as compileWorkbook, generateSeatingRecommendations, parseMessyEventInfo as parseEventInfo, workbookToBuffer } from "./eventsheetWorkbook.js";
 import { buildEventUrl, createEmptyPreview, createEventRecord, deleteEventRecord, getEventIdFromUrl, listEventRecords, loadEventRecord, saveEventRecord } from "./eventStorage.js";
-import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, getSeatingMetrics, seatingPlanToNotes, validateAndApplySeatingPlan } from "./seatingIntelligence.js";
+import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, checkManualAssignCapacity, getSeatingMetrics, seatingPlanToNotes, validateAndApplySeatingPlan } from "./seatingIntelligence.js";
 import "./styles.css";
 
 const sampleText = `אירוע: חתונת נועה ודניאל
@@ -95,6 +95,7 @@ function App() {
   const [workbookReady, setWorkbookReady] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [applyError, setApplyError] = useState(null);
+  const [manualAssignError, setManualAssignError] = useState(null);
 
   useEffect(() => {
     setEventIndex(listEventRecords());
@@ -252,6 +253,14 @@ function App() {
   }
 
   function updateGuest(index, field, value) {
+    if (field === "table" && Number(value) > 0) {
+      const check = checkManualAssignCapacity(preview.guests, preview.seating, [index], Number(value));
+      if (!check.ok) {
+        setManualAssignError(check.error);
+        return;
+      }
+    }
+    setManualAssignError(null);
     updatePreview((current) => refreshRecommendations({
       ...current,
       guests: current.guests.map((guest, guestIndex) => guestIndex === index ? { ...guest, [field]: field === "table" ? Number(value) || 0 : value } : guest),
@@ -347,6 +356,12 @@ function App() {
   function assignSelectedGuests() {
     const tableNumber = Number(selectedTableId);
     if (!tableNumber || selectedGuestIndexes.length === 0) return;
+    const check = checkManualAssignCapacity(preview.guests, preview.seating, selectedGuestIndexes, tableNumber);
+    if (!check.ok) {
+      setManualAssignError(check.error);
+      return;
+    }
+    setManualAssignError(null);
     updatePreview((current) => refreshRecommendations({
       ...current,
       guests: current.guests.map((guest, index) => selectedGuestIndexes.includes(index) ? { ...guest, table: tableNumber } : guest),
@@ -360,6 +375,7 @@ function App() {
 
   function calculateSeatingRecommendations(includeExistingAssignments = false) {
     setApplyError(null);
+    setManualAssignError(null);
     const plan = buildSeatingRecommendationPlan(preview.guests, preview.seating, { includeExistingAssignments });
     updatePreview((current) => ({
       ...current,
@@ -395,6 +411,7 @@ function App() {
 
   function clearSeatingRecommendations() {
     setApplyError(null);
+    setManualAssignError(null);
     updatePreview((current) => ({
       ...current,
       seatingPlan: null,
@@ -427,6 +444,7 @@ function App() {
           activeTab={activeTab}
           applyError={applyError}
           categories={categories}
+          manualAssignError={manualAssignError}
           eventData={record}
           filteredGuestEntries={filteredGuestEntries}
           guestQuery={guestQuery}
@@ -667,10 +685,11 @@ function OverviewPanel({ stats, seatingWithGuests, preview }) {
   );
 }
 
-function GuestsPanel({ categories, filteredGuestEntries, guestQuery, newGuest, onAddGuest, onDeleteGuest, onGuestQuery, onNewGuestChange, onSelectedCategory, onUpdateGuest, selectedCategory, stats }) {
+function GuestsPanel({ categories, filteredGuestEntries, guestQuery, manualAssignError, newGuest, onAddGuest, onDeleteGuest, onGuestQuery, onNewGuestChange, onSelectedCategory, onUpdateGuest, selectedCategory, stats }) {
   return (
     <div className="workspace-content">
       <SectionHeader title="אורחים" subtitle={`${stats.guests} אורחים · ${stats.confirmed} אישרו · ${stats.seated} שובצו`} />
+      {manualAssignError && <div className="recommendation-warning apply-error"><p>{manualAssignError}</p></div>}
       <div className="search-shell">
         <Search size={18} />
         <input value={guestQuery} onChange={(event) => onGuestQuery(event.target.value)} placeholder="חיפוש לפי שם, קטגוריה, שולחן או סטטוס..." />
@@ -733,6 +752,7 @@ function SeatingPanel(props) {
   const {
     applyError,
     eventData,
+    manualAssignError,
     newTable,
     onAddTable,
     onApplySeatingRecommendations,
@@ -821,6 +841,7 @@ function SeatingPanel(props) {
         </section>
         <SelectedTablePanel
           hasRealTables={hasRealTables}
+          manualAssignError={manualAssignError}
           onAssignSelectedGuests={onAssignSelectedGuests}
           onDeleteTable={onDeleteTable}
           onRemoveGuestFromTable={onRemoveGuestFromTable}
@@ -933,7 +954,7 @@ function SeatingMapTable({ index, isSelected, onClick, table }) {
   );
 }
 
-function SelectedTablePanel({ hasRealTables, onAssignSelectedGuests, onDeleteTable, onRemoveGuestFromTable, onToggleGuestSelection, onUpdateTable, recommendations, selectedGuestIndexes, table, unassignedGuests }) {
+function SelectedTablePanel({ hasRealTables, manualAssignError, onAssignSelectedGuests, onDeleteTable, onRemoveGuestFromTable, onToggleGuestSelection, onUpdateTable, recommendations, selectedGuestIndexes, table, unassignedGuests }) {
   if (!table) return <aside className="selected-table-panel"><EmptyState compact text="לא נבחר שולחן" /></aside>;
   const occupied = table.guests?.length || 0;
   const percent = table.capacity ? Math.min(100, Math.round((occupied / table.capacity) * 100)) : 0;
@@ -975,6 +996,7 @@ function SelectedTablePanel({ hasRealTables, onAssignSelectedGuests, onDeleteTab
             <small>{guest.category || "כללי"}</small>
           </label>
         )) : <em>אין אורחים ללא שולחן</em>}
+        {manualAssignError && <div className="recommendation-warning apply-error"><p>{manualAssignError}</p></div>}
         <button className="primary-button compact" type="button" onClick={onAssignSelectedGuests} disabled={!hasRealTables || table.visualOnly || selectedGuestIndexes.length === 0}>שבץ לשולחן</button>
       </div>
       <div className="selected-notes">

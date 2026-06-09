@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { buildWorkbook, parseMessyEventInfo, sheetNames, workbookToBuffer, workbookVersion } from "../src/eventsheetWorkbook.js";
 import { createEventRecord, deleteEventRecord, listEventRecords, loadEventRecord, saveEventRecord } from "../src/eventStorage.js";
-import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, seatingPlanToNotes, validateAndApplySeatingPlan } from "../src/seatingIntelligence.js";
+import { applySeatingRecommendationPlan, buildSeatingRecommendationPlan, checkManualAssignCapacity, seatingPlanToNotes, validateAndApplySeatingPlan } from "../src/seatingIntelligence.js";
 
 const store = new Map();
 global.localStorage = {
@@ -150,6 +150,43 @@ const seatingCapacityGuardOk = (() => {
   const preApplyGuard = r9.ok === false && typeof r9.error === "string" && r9.error.length > 0;
 
   return masterInvariant && exactCapacity && overCapacity && zeroCapacity && noTables && splitAllPlaced && splitWithLeftovers && manualLocked && preApplyGuard;
+})();
+
+const manualAssignCapacityGuardOk = (() => {
+  const guests = [
+    { name: "א", status: "attending", category: "X", table: 1 },
+    { name: "ב", status: "attending", category: "X", table: 1 },
+    { name: "ג", status: "attending", category: "X", table: 1 },
+    { name: "ד", status: "attending", category: "Y", table: 0 },
+    { name: "ה", status: "attending", category: "Y", table: 2 },
+  ];
+  const tables = [
+    { table: 1, label: "שולחן 1", capacity: 3, category: "X" },
+    { table: 2, label: "שולחן 2", capacity: 2, category: "Y" },
+  ];
+
+  // Block: table 1 is full (3/3), adding guest 3 (table 0) must fail
+  const blockWhenFull = checkManualAssignCapacity(guests, tables, [3], 1).ok === false;
+
+  // Allow: table 2 has 1 guest, capacity 2 — adding guest 3 must succeed
+  const allowWhenRoom = checkManualAssignCapacity(guests, tables, [3], 2).ok === true;
+
+  // Allow: unassign (target = 0) is always valid
+  const allowUnassign = checkManualAssignCapacity(guests, tables, [0], 0).ok === true;
+
+  // Allow: table not in seating list — no capacity constraint
+  const allowUnknownTable = checkManualAssignCapacity(guests, tables, [3], 99).ok === true;
+
+  // No double-count: guest 0 already on table 1, "assigning" them there again is ok (3 ≤ 3)
+  const noDoubleCount = checkManualAssignCapacity(guests, tables, [0], 1).ok === true;
+
+  // Block: assign 3 guests to table 2 (1 already there, capacity 2) — total would be 4
+  const blockGroup = checkManualAssignCapacity(guests, tables, [3, 4, 0], 2).ok === false;
+
+  // Exact fit: 1 slot left on table 2, add 1 guest — must succeed
+  const exactFit = checkManualAssignCapacity(guests, tables, [3], 2).ok === true;
+
+  return blockWhenFull && allowWhenRoom && allowUnassign && allowUnknownTable && noDoubleCount && blockGroup && exactFit;
 })();
 
 const eventScopedCategoriesOk = (() => {
@@ -324,6 +361,7 @@ if (
   !isolationOk ||
   !seatingAlgorithmOk ||
   !seatingCapacityGuardOk ||
+  !manualAssignCapacityGuardOk ||
   !eventScopedCategoriesOk ||
   !parserOk ||
   !noDefaultSeating ||
@@ -348,6 +386,7 @@ if (
     isolationOk,
     seatingAlgorithmOk,
     seatingCapacityGuardOk,
+    manualAssignCapacityGuardOk,
     eventScopedCategoriesOk,
     parserOk,
     parserDetails: {
@@ -386,6 +425,7 @@ console.log(JSON.stringify({
   seatingAlgorithm: {
     ok: seatingAlgorithmOk,
     capacityGuard: seatingCapacityGuardOk,
+    manualAssignGuard: manualAssignCapacityGuardOk,
     recommendations: seatingPlan.recommendations.length,
     assignments: seatingPlan.assignments.length,
     pendingGuests: seatingPlan.pendingGuests.length,

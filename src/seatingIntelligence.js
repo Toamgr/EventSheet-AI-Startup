@@ -200,6 +200,22 @@ export function validateAndApplySeatingPlan(guests = [], tables = [], plan) {
   return { ok: true, guests: applySeatingRecommendationPlan(guests, plan) };
 }
 
+export function checkManualAssignCapacity(guests = [], tables = [], guestIndexes = [], targetTableNumber) {
+  const tableNum = Number(targetTableNumber);
+  if (!tableNum) return { ok: true };
+  const tableDef = tables.find((t) => Number(t.table) === tableNum);
+  if (!tableDef) return { ok: true };
+  const capacity = Math.max(0, Number(tableDef.capacity) || 0);
+  const indexSet = new Set(guestIndexes);
+  const stayingOnTable = guests.filter((g, i) => Number(g.table) === tableNum && !indexSet.has(i)).length;
+  const finalCount = stayingOnTable + guestIndexes.length;
+  if (finalCount > capacity) {
+    const label = tableDef.label || `שולחן ${tableNum}`;
+    return { ok: false, error: `לא ניתן לשבץ — ${label} יגיע ל-${finalCount} אורחים, קיבולת ${capacity}.` };
+  }
+  return { ok: true };
+}
+
 export function seatingPlanToNotes(plan) {
   return (plan?.notes || []).filter(Boolean);
 }
